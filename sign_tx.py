@@ -1,6 +1,5 @@
-import asyncio
 import json
-from typing import Dict
+from typing import Dict, List
 
 from blspy import G1Element, AugSchemeMPL, PrivateKey, G2Element
 
@@ -15,7 +14,31 @@ from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import (
 )
 
 
-async def sign_tx(mnemonic: str, spend_bundle: SpendBundle):
+def create_hardened_child_public_keys(mnemonic: str, number: int = 5000):
+    """
+    Creates child public keys, derived from the master private key, using hardened derivation. This method is more
+    secure than public key derivation since it's following the EIP-2333 spec for quantum security.
+    """
+
+    seed: bytes = mnemonic_to_seed(mnemonic, passphrase="")
+    master_private_key: PrivateKey = AugSchemeMPL.key_gen(seed)
+
+    intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
+
+    all_pks: List[G1Element] = []
+    for i in range(number):
+        child_sk: PrivateKey = AugSchemeMPL.derive_child_sk(intermediate_sk, i)
+        child_pk: G1Element = child_sk.get_g1()
+        all_pks.append(child_pk)
+
+    with open("child_public_keys.txt", "w") as f:
+        lines = [f"{bytes(pk).hex()}\n" for pk in all_pks]
+        f.writelines(lines)
+
+
+def sign_tx(mnemonic: str, spend_bundle: SpendBundle, use_hardened_keys: bool):
     """
     Takes in an unsigned transaction (called a spend bundle in chia), and a 24 word mnemonic (master sk)
     and generates the aggregate BLS signature for the transaction.
@@ -25,19 +48,32 @@ async def sign_tx(mnemonic: str, spend_bundle: SpendBundle):
     print(f"Master public key: {master_private_key.get_g1()}")
     # This field is the ADDITIONAL_DATA found in the constants
     additional_data: bytes = bytes.fromhex("ccd5bb71183532bff220ba46c268991a3ff07eb358e8255a65c30a2dce0e5fbb")
-    intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(master_private_key, 12381)
-    intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 8444)
-    intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 2)
-
     puzzle_hash_to_sk: Dict[bytes32, PrivateKey] = {}
 
-    # Change this loop to scan more keys if you have more
-    for i in range(5000):
-        child_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, i)
-        child_pk: G1Element = child_sk.get_g1()
-        puzzle = puzzle_for_pk(child_pk)
-        puzzle_hash = puzzle.get_tree_hash()
-        puzzle_hash_to_sk[puzzle_hash] = child_sk
+    if use_hardened_keys:
+        intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
+        intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
+        intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
+
+        # Change this loop to scan more keys if you have more
+        for i in range(5000):
+            child_sk: PrivateKey = AugSchemeMPL.derive_child_sk(intermediate_sk, i)
+            child_pk: G1Element = child_sk.get_g1()
+            puzzle = puzzle_for_pk(child_pk)
+            puzzle_hash = puzzle.get_tree_hash()
+            puzzle_hash_to_sk[puzzle_hash] = child_sk
+    else:
+        intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(master_private_key, 12381)
+        intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 8444)
+        intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 2)
+
+        # Change this loop to scan more keys if you have more
+        for i in range(5000):
+            child_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, i)
+            child_pk: G1Element = child_sk.get_g1()
+            puzzle = puzzle_for_pk(child_pk)
+            puzzle_hash = puzzle.get_tree_hash()
+            puzzle_hash_to_sk[puzzle_hash] = child_sk
 
     aggregate_signature: G2Element = G2Element()
     for coin_solution in spend_bundle.coin_solutions:
@@ -70,16 +106,21 @@ async def sign_tx(mnemonic: str, spend_bundle: SpendBundle):
     # This transaction can be submitted to the blockchain using the RPC: push_tx
 
 
-async def main():
+def main():
     # Mnemonics can be generated using `chia keys generate_and_print`, or `chia keys generate`. The latter stored
     # the key in the OS keychain (unencrypted file if linux).
     mnemonic: str = "neither medal holiday echo link dog sleep idea turkey logic security sword save taxi chapter artwork toddler wealth local mind manual never unlock narrow"
 
-    with open("../tx_0.json", "r") as f:
+    # If you want to use hardened keys which are more secure against quantum computers, you need to export
+    # The public keys
+    # create_hardened_child_public_keys(mnemonic, 1000)
+
+    with open("tx_1.json", "r") as f:
         spend_bundle_json = f.read()
     spend_bundle_json_dict: Dict = json.loads(spend_bundle_json)
     spend_bundle: SpendBundle = SpendBundle.from_json_dict(spend_bundle_json_dict)
-    await sign_tx(mnemonic, spend_bundle)
+
+    sign_tx(mnemonic, spend_bundle, use_hardened_keys=False)
 
 
-asyncio.run(main())
+main()
