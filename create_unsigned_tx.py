@@ -20,7 +20,7 @@ from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import puzzle_for_
 from chia.wallet.wallet import Wallet
 
 
-async def generate_address(master_pk: G1Element, derivation_index: int, prefix="xch") -> str:
+async def generate_address_unhardened(master_pk: G1Element, derivation_index: int, prefix="xch") -> str:
     """
     This derives a child address from a master (root) public key, given a derivation index between 0 and 2**32 - 1
     Use 'txch' prefix for testnet.
@@ -35,7 +35,13 @@ async def generate_address(master_pk: G1Element, derivation_index: int, prefix="
     return encode_puzzle_hash(puzzle_hash, prefix)
 
 
-async def create_transaction(master_pk: G1Element, outputs: List[Tuple[str, uint64]], fee: uint64, prefix="xch"):
+async def create_transaction(
+    master_pk: G1Element,
+    outputs: List[Tuple[str, uint64]],
+    fee: uint64,
+    prefix="xch",
+    public_keys: Optional[List[G1Element]] = None,
+):
     """
     This searches for all coins controlled by the master public key, by deriving child pks in batches of 1000,
     and then searching the blockchain for coins. This requires the full node to be running and synced. Please keep
@@ -59,24 +65,29 @@ async def create_transaction(master_pk: G1Element, outputs: List[Tuple[str, uint
         intermediate_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(master_pk, 12381)
         intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 8444)
         intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 2)
-
-        start = time.time()
         puzzle_hashes: List[bytes32] = []
         puzzle_hash_to_pk: Dict[bytes32, G1Element] = {}
         records: List[CoinRecord] = []
-        for batch in range(100000000):
-            new_puzzle_hashes: List[bytes32] = []
-            for i in range(1000):
-                child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, batch * 1000 + i)
-                puzzle = puzzle_for_pk(child_pk)
-                puzzle_hash = puzzle.get_tree_hash()
-                new_puzzle_hashes.append(puzzle_hash)
-                puzzle_hashes.append(puzzle_hash)
-                puzzle_hash_to_pk[puzzle_hash] = child_pk
-            new_records: List[CoinRecord] = await client.get_coin_records_by_puzzle_hashes(new_puzzle_hashes, False)
-            if len(new_records) == 0:
-                break
-            records += new_records
+
+        start = time.time()
+        if public_keys is not None:
+            # Using hardened keys to create transaction
+            pass
+        else:
+            # Using unhardened keys to create transaction
+            for batch in range(100000000):
+                new_puzzle_hashes: List[bytes32] = []
+                for i in range(1000):
+                    child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, batch * 1000 + i)
+                    puzzle = puzzle_for_pk(child_pk)
+                    puzzle_hash = puzzle.get_tree_hash()
+                    new_puzzle_hashes.append(puzzle_hash)
+                    puzzle_hashes.append(puzzle_hash)
+                    puzzle_hash_to_pk[puzzle_hash] = child_pk
+                new_records: List[CoinRecord] = await client.get_coin_records_by_puzzle_hashes(new_puzzle_hashes, False)
+                if len(new_records) == 0:
+                    break
+                records += new_records
 
         print(f"Total number of records: {len(records)}")
         print(f"Time taken: {time.time() - start}")
@@ -140,10 +151,10 @@ async def main():
     # It can also be obtained from the 24 word menmonic, as shown in the sign_tx script
     master_pk_hex = "8252b15998c16ce42b69ceb5cf3161cdcbc22574d50b68711e432a8c1f18bdfbaf1a60ed3cdb8bf46f7f5387b6cdf29d"
     master_pk: G1Element = G1Element.from_bytes(bytes.fromhex(master_pk_hex))
-    print(await generate_address(master_pk, 0))
-    print(await generate_address(master_pk, 100))
-    print(await generate_address(master_pk, 110))
-    print(await generate_address(master_pk, 1400))
+    print(await generate_address_unhardened(master_pk, 0))
+    print(await generate_address_unhardened(master_pk, 100))
+    print(await generate_address_unhardened(master_pk, 110))
+    print(await generate_address_unhardened(master_pk, 1400))
 
     # These are your payees, a list of tuples of address, and amount, in mojos (trillionths of a chia), and the fees.
     await create_transaction(
