@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from blspy import G1Element, AugSchemeMPL, G2Element
 
@@ -35,6 +35,12 @@ async def generate_address_unhardened(master_pk: G1Element, derivation_index: in
     return encode_puzzle_hash(puzzle_hash, prefix)
 
 
+async def generate_address_from_child_pk(child_pk: G1Element, prefix="xch") -> str:
+    puzzle = puzzle_for_pk(child_pk)
+    puzzle_hash = puzzle.get_tree_hash()
+    return encode_puzzle_hash(puzzle_hash, prefix)
+
+
 async def create_transaction(
     master_pk: G1Element,
     outputs: List[Tuple[str, uint64]],
@@ -52,7 +58,7 @@ async def create_transaction(
     It is an unsigned transaction so it must be passed to an offline signer to sign, in JSON.
     """
 
-    root_path = Path("/testnet5")
+    root_path = Path("/home/mariano/.chia/testnet5")
     config = load_config(root_path, "config.yaml")
     client: FullNodeRpcClient = await FullNodeRpcClient.create("127.0.0.1", uint16(8555), root_path, config)
     try:
@@ -70,9 +76,15 @@ async def create_transaction(
         records: List[CoinRecord] = []
 
         start = time.time()
-        if public_keys is not None:
+        if public_keys is not None and len(public_keys) > 0:
             # Using hardened keys to create transaction
-            pass
+            for pk in public_keys:
+                puzzle = puzzle_for_pk(pk)
+                puzzle_hash = puzzle.get_tree_hash()
+                puzzle_hashes.append(puzzle_hash)
+                puzzle_hash_to_pk[puzzle_hash] = pk
+            records = await client.get_coin_records_by_puzzle_hashes(puzzle_hashes, False)
+
         else:
             # Using unhardened keys to create transaction
             for batch in range(100000000):
@@ -146,7 +158,6 @@ async def create_transaction(
 
 
 async def main():
-
     # The master public key can be obtained by doing `chia keys show`. Please keep this value SECRET!
     # It can also be obtained from the 24 word menmonic, as shown in the sign_tx script
     master_pk_hex = "8252b15998c16ce42b69ceb5cf3161cdcbc22574d50b68711e432a8c1f18bdfbaf1a60ed3cdb8bf46f7f5387b6cdf29d"
@@ -156,6 +167,18 @@ async def main():
     print(await generate_address_unhardened(master_pk, 110))
     print(await generate_address_unhardened(master_pk, 1400))
 
+    public_keys: Optional[List[G1Element]] = None
+    use_hardened_keys = False
+
+    # Hardened keys provide more security against quantum computers, but don't allow you to derive new adresses
+    # using the master (BIP32) public key. Therefore you need to load a public key file, generated with the private key
+    if use_hardened_keys:
+        with open("child_public_keys.txt", "r") as f:
+            public_keys = [G1Element.from_bytes(bytes.fromhex(line)) for line in f.readlines()]
+            assert len(public_keys) > 0
+            print(await generate_address_from_child_pk(public_keys[0]))
+            print(await generate_address_from_child_pk(public_keys[500]))
+
     # These are your payees, a list of tuples of address, and amount, in mojos (trillionths of a chia), and the fees.
     await create_transaction(
         master_pk,
@@ -164,6 +187,7 @@ async def main():
             ("txch1c2cguswhvmdyz9hr3q6hak2h6p9dw4rz82g4707k2xy2sarv705qcce4pn", uint64(400000)),
         ],
         uint64(10000000),
+        public_keys=public_keys,
     )
 
 

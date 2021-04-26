@@ -17,18 +17,24 @@ mnemonic (24 words), but it requires no servers, ports, or internet connection.
 7. Run the `sign_tx.py` script on the offline machine with your 24 words, and your transaction
 8. Copy the signed tx and send it to the full node on the online machine, using the `push_tx` RPC call.
 
-## Notes
+## Hardened vs Unhardened Keys
 This demo uses bip32 public key derivation, where new public keys / addresses can be created using a master
 public key, which can be on an online machine. Even if the master pk is revealed, the secret key (sk or private key),
 is not revealed. Note however, that if one of the child private keys is revealed, all of the other child private keys
 are also revealed. Please see https://github.com/Chia-Network/chia-blockchain/wiki/Chia-Keys-Architecture for information
 about keys.
 
-Child public keys derived in this form are NOT part of the EIP-2333 spec, since they are not secure against a quantum
+Child public keys derived in this form (called unhardened keys) are NOT part of the EIP-2333 spec, since they are not secure against a quantum
 attack. If you want more security against quantum attacks, we recommend not using this feature, and instead generating
 many public keys from your offline machine, and exporting all of them into an online machine.
 
+If you would like to use hardened private keys, which don't allow deriving new public keys from a master public key,
+you can also do this. In the `sign_tx.py` file, there is method which can create many public keys and export them to
+a file. You can import this file using the `create_unsigned_tx.py` script. Please read both files to understand how
+they work.
 
+
+## Transactions
 Chia has no concept of transactions in the blockchain. There are spend bundles which can represent an individual
 transaction, but when a block is created, all spend bundles are combined into one, and all the signatures are 
 aggregated into one. Each block in chia only has one signature. Therefore, each block does not have a list
