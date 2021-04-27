@@ -45,16 +45,15 @@ def sign_tx(mnemonic: str, spend_bundle: SpendBundle, use_hardened_keys: bool):
     """
     seed: bytes = mnemonic_to_seed(mnemonic, passphrase="")
     master_private_key: PrivateKey = AugSchemeMPL.key_gen(seed)
-    print(f"Master public key: {master_private_key.get_g1()}")
     # This field is the ADDITIONAL_DATA found in the constants
     additional_data: bytes = bytes.fromhex("ccd5bb71183532bff220ba46c268991a3ff07eb358e8255a65c30a2dce0e5fbb")
     puzzle_hash_to_sk: Dict[bytes32, PrivateKey] = {}
 
-    if use_hardened_keys:
-        intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
-        intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
-        intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
+    intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
 
+    if use_hardened_keys:
         # Change this loop to scan more keys if you have more
         for i in range(5000):
             child_sk: PrivateKey = AugSchemeMPL.derive_child_sk(intermediate_sk, i)
@@ -63,11 +62,8 @@ def sign_tx(mnemonic: str, spend_bundle: SpendBundle, use_hardened_keys: bool):
             puzzle_hash = puzzle.get_tree_hash()
             puzzle_hash_to_sk[puzzle_hash] = child_sk
     else:
-        intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(master_private_key, 12381)
-        intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 8444)
-        intermediate_sk = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, 2)
-
         # Change this loop to scan more keys if you have more
+        print(f"Parent public key is: {intermediate_sk.get_g1()}. Please use this within `create_unsigned_tx.py`")
         for i in range(5000):
             child_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, i)
             child_pk: G1Element = child_sk.get_g1()
@@ -115,7 +111,7 @@ def main():
     # The public keys
     # create_hardened_child_public_keys(mnemonic, 1000)
 
-    with open("tx_1.json", "r") as f:
+    with open("tx_2.json", "r") as f:
         spend_bundle_json = f.read()
     spend_bundle_json_dict: Dict = json.loads(spend_bundle_json)
     spend_bundle: SpendBundle = SpendBundle.from_json_dict(spend_bundle_json_dict)

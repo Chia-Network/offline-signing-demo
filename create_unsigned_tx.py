@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 from blspy import G1Element, AugSchemeMPL, G2Element
+from chia.consensus.cost_calculator import calculate_cost_of_program
+from chia.full_node.bundle_tools import simple_solution_generator
+from chia.full_node.mempool_check_conditions import get_name_puzzle_conditions
 
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
 from chia.types.blockchain_format.coin import Coin
-from chia.types.blockchain_format.program import Program
+from chia.types.blockchain_format.program import Program, SerializedProgram
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.types.coin_solution import CoinSolution
@@ -18,18 +21,16 @@ from chia.util.config import load_config
 from chia.util.ints import uint16, uint64
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import puzzle_for_pk
 from chia.wallet.wallet import Wallet
+from chia.consensus.default_constants import DEFAULT_CONSTANTS
 
 
-async def generate_address_unhardened(master_pk: G1Element, derivation_index: int, prefix="xch") -> str:
+async def generate_address_unhardened(parent_pk: G1Element, derivation_index: int, prefix="xch") -> str:
     """
-    This derives a child address from a master (root) public key, given a derivation index between 0 and 2**32 - 1
+    This derives a child address from a parent public key, given a derivation index between 0 and 2**32 - 1
     Use 'txch' prefix for testnet.
     """
 
-    intermediate_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(master_pk, 12381)
-    intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 8444)
-    intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 2)
-    child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, derivation_index)
+    child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(parent_pk, derivation_index)
     puzzle = puzzle_for_pk(child_pk)
     puzzle_hash = puzzle.get_tree_hash()
     return encode_puzzle_hash(puzzle_hash, prefix)
@@ -41,12 +42,25 @@ async def generate_address_from_child_pk(child_pk: G1Element, prefix="xch") -> s
     return encode_puzzle_hash(puzzle_hash, prefix)
 
 
+async def check_cost(bundle: SpendBundle) -> None:
+    """
+    Checks that the cost of the transaction does not exceed blockchain limits. As of version 1.1.2, the mempool limits
+    transactions to 50% of the block limit, or 0.5 * 11000000000 = 5.5 billion cost.
+    """
+    program = simple_solution_generator(bundle)
+    npc_result = get_name_puzzle_conditions(program, DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM * 0.5, True)
+    cost = calculate_cost_of_program(SerializedProgram.from_bytes(bytes(program)), npc_result,
+                                     DEFAULT_CONSTANTS.COST_PER_BYTE)
+    print(f"Transaction cost: {cost}")
+    assert cost < (0.5 * DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM)
+
+
 async def create_transaction(
-    master_pk: G1Element,
-    outputs: List[Tuple[str, uint64]],
-    fee: uint64,
-    prefix="xch",
-    public_keys: Optional[List[G1Element]] = None,
+        parent_pk: G1Element,
+        outputs: List[Tuple[str, uint64]],
+        fee: uint64,
+        prefix="xch",
+        public_keys: Optional[List[G1Element]] = None,
 ):
     """
     This searches for all coins controlled by the master public key, by deriving child pks in batches of 1000,
@@ -68,9 +82,6 @@ async def create_transaction(
             print(f"Not synced. Please wait for the node to sync and try again.")
             return
 
-        intermediate_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(master_pk, 12381)
-        intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 8444)
-        intermediate_pk = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, 2)
         puzzle_hashes: List[bytes32] = []
         puzzle_hash_to_pk: Dict[bytes32, G1Element] = {}
         records: List[CoinRecord] = []
@@ -90,7 +101,7 @@ async def create_transaction(
             for batch in range(100000000):
                 new_puzzle_hashes: List[bytes32] = []
                 for i in range(1000):
-                    child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(intermediate_pk, batch * 1000 + i)
+                    child_pk: G1Element = AugSchemeMPL.derive_child_pk_unhardened(parent_pk, batch * 1000 + i)
                     puzzle = puzzle_for_pk(child_pk)
                     puzzle_hash = puzzle.get_tree_hash()
                     new_puzzle_hashes.append(puzzle_hash)
@@ -138,12 +149,16 @@ async def create_transaction(
             # get PK
             puzzle = puzzle_for_pk(puzzle_hash_to_pk[coin.puzzle_hash])
             if first_spend:
-                solution: Program = Wallet.make_solution(primaries=primaries)
+                solution: Program = Wallet().make_solution(primaries=primaries)
+                first_spend = False
             else:
-                solution = Wallet.make_solution()
+                solution = Wallet().make_solution()
             spends.append(CoinSolution(coin, puzzle, solution))
 
         spend_bundle: SpendBundle = SpendBundle(spends, G2Element())
+
+        await check_cost(spend_bundle)
+        assert spend_bundle.fees() == fee
 
         print(f"Created transaction with fees: {spend_bundle.fees()} and outputs:")
         for addition in spend_bundle.additions():
@@ -158,14 +173,16 @@ async def create_transaction(
 
 
 async def main():
-    # The master public key can be obtained by doing `chia keys show`. Please keep this value SECRET!
-    # It can also be obtained from the 24 word menmonic, as shown in the sign_tx script
-    master_pk_hex = "8252b15998c16ce42b69ceb5cf3161cdcbc22574d50b68711e432a8c1f18bdfbaf1a60ed3cdb8bf46f7f5387b6cdf29d"
-    master_pk: G1Element = G1Element.from_bytes(bytes.fromhex(master_pk_hex))
-    print(await generate_address_unhardened(master_pk, 0))
-    print(await generate_address_unhardened(master_pk, 100))
-    print(await generate_address_unhardened(master_pk, 110))
-    print(await generate_address_unhardened(master_pk, 1400))
+    # The parent public key is NOT the same as the master pk that can be obtained by doing `chia keys show`.
+    # It can be obtained from the 24 word menmonic, as shown in the sign_tx script. This is a SECRET value, do not
+    # reveal this.
+
+    parent_pk_hex = "b9a124531d5528a2760afc6444c4c877cefdb1b6eeaee32f6929ee086f08bfd4b15828125c21c47a3ef7b11fab84ba42"
+    parent_pk: G1Element = G1Element.from_bytes(bytes.fromhex(parent_pk_hex))
+    print(await generate_address_unhardened(parent_pk, 0))
+    print(await generate_address_unhardened(parent_pk, 100))
+    print(await generate_address_unhardened(parent_pk, 110))
+    print(await generate_address_unhardened(parent_pk, 1400))
 
     public_keys: Optional[List[G1Element]] = None
     use_hardened_keys = False
@@ -181,12 +198,12 @@ async def main():
 
     # These are your payees, a list of tuples of address, and amount, in mojos (trillionths of a chia), and the fees.
     await create_transaction(
-        master_pk,
+        parent_pk,
         [
-            ("txch1jnrdkqqcdyqyrrhhc8c9uyn7uxny0jlxu52wcw790t9hh0ndlvgqed8545", uint64(300000)),
-            ("txch1c2cguswhvmdyz9hr3q6hak2h6p9dw4rz82g4707k2xy2sarv705qcce4pn", uint64(400000)),
+            ("txch1jnrdkqqcdyqyrrhhc8c9uyn7uxny0jlxu52wcw790t9hh0ndlvgqed8545", uint64(15 * 10 ** 12)),
+            ("txch1c2cguswhvmdyz9hr3q6hak2h6p9dw4rz82g4707k2xy2sarv705qcce4pn", uint64(16 * 10 ** 12)),
         ],
-        uint64(10000000),
+        uint64(0.5 * 10 ** 12),
         public_keys=public_keys,
     )
 
