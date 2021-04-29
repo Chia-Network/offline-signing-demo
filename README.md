@@ -7,13 +7,15 @@ mnemonic (24 words), but it requires no servers, ports, or internet connection.
 
 ## How to use the demo
 
+These steps are for unhardened keys. For hardened keys it's slightly different.
+
 1. Get two machines, an online and offline machine, and run a node on the online one (testnet or mainnet).
 2. Install python 3, create a venv `python3 -m venv  ./venv` in the directory where this README is.
 3. Do `source ./venv/bin/activate` to activate the venv.
 4. Do a `pip install -r requirements.txt` for this project.
 5. Create a private key using `chia keys generate` or `chia keys generate_and_print`, on an offline machine.
 6. Put the 24 words into `sign_tx.py` file.
-7. Run the sign_tx script or do `chia keys show` to get the master public key, and paste it `create_unsigned_tx.py`, on the online machine.
+7. Run the sign_tx script to get the parent public key and paste it `create_unsigned_tx.py`, on the online machine.
 8. Use the `generate_address` function in `create_unsigned_transaction.py` to create new addresses for a specific index, and send some chia (or testnet chia) to these addresses. Note that for testnet, you should use the `txch` prefix instead of `xch` when calling this function.
 9. Run the `create_unsigned_tx.py` script and save the JSON spend bundle, on the online machine.
 10. Run the `sign_tx.py` script on the offline machine with your 24 words, and your transaction
