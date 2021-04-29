@@ -50,6 +50,11 @@ coins for a specific puzzle hash. You can find more information about the RPCs h
 
 ## Changelog
 
+### 1.3
+- Added announcements to ensure the transaction cannot be unbundled
+- Added the RESERVE_FEE condition to ensure no stealing of fees
+- Show the conditions created by the transaction
+
 ### 1.2
 - Change format of unhardened keys, note, the master PK is no longer used. (hardened is used for the top 3 levels)
 - Add setup.py so you can do `pip install -r requirements.txt`, and update instructions.
