@@ -38,20 +38,15 @@ def create_hardened_child_public_keys(mnemonic: str, number: int = 5000):
         f.writelines(lines)
 
 
-def sign_tx(mnemonic: str, spend_bundle: SpendBundle, use_hardened_keys: bool):
+def sign_tx(intermediate_sk: PrivateKey, spend_bundle: SpendBundle, use_hardened_keys: bool):
     """
     Takes in an unsigned transaction (called a spend bundle in chia), and a 24 word mnemonic (master sk)
     and generates the aggregate BLS signature for the transaction.
     """
-    seed: bytes = mnemonic_to_seed(mnemonic, passphrase="")
-    master_private_key: PrivateKey = AugSchemeMPL.key_gen(seed)
+
     # This field is the ADDITIONAL_DATA found in the constants
     additional_data: bytes = bytes.fromhex("ccd5bb71183532bff220ba46c268991a3ff07eb358e8255a65c30a2dce0e5fbb")
     puzzle_hash_to_sk: Dict[bytes32, PrivateKey] = {}
-
-    intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
-    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
-    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
 
     if use_hardened_keys:
         # Change this loop to scan more keys if you have more
@@ -63,7 +58,6 @@ def sign_tx(mnemonic: str, spend_bundle: SpendBundle, use_hardened_keys: bool):
             puzzle_hash_to_sk[puzzle_hash] = child_sk
     else:
         # Change this loop to scan more keys if you have more
-        print(f"Parent public key is: {intermediate_sk.get_g1()}. Please use this within `create_unsigned_tx.py`")
         for i in range(5000):
             child_sk: PrivateKey = AugSchemeMPL.derive_child_sk_unhardened(intermediate_sk, i)
             child_pk: G1Element = child_sk.get_g1()
@@ -106,17 +100,29 @@ def main():
     # Mnemonics can be generated using `chia keys generate_and_print`, or `chia keys generate`. The latter stored
     # the key in the OS keychain (unencrypted file if linux).
     mnemonic: str = "neither medal holiday echo link dog sleep idea turkey logic security sword save taxi chapter artwork toddler wealth local mind manual never unlock narrow"
+    
+    seed: bytes = mnemonic_to_seed(mnemonic, passphrase="")
+    master_private_key: PrivateKey = AugSchemeMPL.key_gen(seed)
+    intermediate_sk: PrivateKey = AugSchemeMPL.derive_child_sk(master_private_key, 12381)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 8444)
+    intermediate_sk = AugSchemeMPL.derive_child_sk(intermediate_sk, 2)
+    print(f"Parent public key is: {intermediate_sk.get_g1()}. Please use this within `create_unsigned_tx.py`")
 
     # If you want to use hardened keys which are more secure against quantum computers, you need to export
     # The public keys
     # create_hardened_child_public_keys(mnemonic, 1000)
-
-    with open("tx_2.json", "r") as f:
-        spend_bundle_json = f.read()
+    
+    try:
+        with open("tx_3.json", "r") as f:
+            spend_bundle_json = f.read()
+    except Exception:
+        print("Error: create your transaction (spend bundle) json and put it into the json file.")
+        return
+        
     spend_bundle_json_dict: Dict = json.loads(spend_bundle_json)
     spend_bundle: SpendBundle = SpendBundle.from_json_dict(spend_bundle_json_dict)
 
-    sign_tx(mnemonic, spend_bundle, use_hardened_keys=False)
+    sign_tx(intermediate_sk, spend_bundle, use_hardened_keys=False)
 
 
 main()

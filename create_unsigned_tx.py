@@ -10,18 +10,23 @@ from chia.full_node.bundle_tools import simple_solution_generator
 from chia.full_node.mempool_check_conditions import get_name_puzzle_conditions
 
 from chia.rpc.full_node_rpc_client import FullNodeRpcClient
+from chia.types.announcement import Announcement
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program, SerializedProgram
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_record import CoinRecord
 from chia.types.coin_solution import CoinSolution
+from chia.types.condition_opcodes import ConditionOpcode
 from chia.types.spend_bundle import SpendBundle
 from chia.util.bech32m import encode_puzzle_hash, decode_puzzle_hash
+from chia.util.condition_tools import parse_sexp_to_conditions
 from chia.util.config import load_config
 from chia.util.ints import uint16, uint64
+from chia.util.hash import std_hash
 from chia.wallet.puzzles.p2_delegated_puzzle_or_hidden_puzzle import puzzle_for_pk
 from chia.wallet.wallet import Wallet
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
+from clvm.casts import int_from_bytes
 
 
 async def generate_address_unhardened(parent_pk: G1Element, derivation_index: int, prefix="xch") -> str:
@@ -55,6 +60,18 @@ async def check_cost(bundle: SpendBundle) -> None:
     assert cost < (0.5 * DEFAULT_CONSTANTS.MAX_BLOCK_COST_CLVM)
 
 
+def print_conditions(spend_bundle: SpendBundle):
+    print("\nConditions:")
+    for coin_solution in spend_bundle.coin_solutions:
+        result = Program.from_bytes(bytes(coin_solution.puzzle_reveal)).run(
+            Program.from_bytes(bytes(coin_solution.solution)))
+        error, result_human = parse_sexp_to_conditions(result)
+        assert error is None
+        for cvp in result_human:
+            print(f"{ConditionOpcode(cvp.opcode).name}: {[var.hex() for var in cvp.vars]}")
+    print("")
+
+
 async def create_transaction(
         parent_pk: G1Element,
         outputs: List[Tuple[str, uint64]],
@@ -72,7 +89,7 @@ async def create_transaction(
     It is an unsigned transaction so it must be passed to an offline signer to sign, in JSON.
     """
 
-    root_path = Path("/home/mariano/.chia/testnet5")
+    root_path = Path("/home/mariano/.chia/testnet_7")
     config = load_config(root_path, "config.yaml")
     client: FullNodeRpcClient = await FullNodeRpcClient.create("127.0.0.1", uint16(8555), root_path, config)
     try:
@@ -143,22 +160,27 @@ async def create_transaction(
             # The change is going to the 0th key
             primaries.append({"puzzlehash": puzzle_hashes[0], "amount": change})
 
-        first_spend: bool = True
+        primary_announcement_hash: Optional[bytes32] = None
         spends: List[CoinSolution] = []
         for coin in selected_coins:
             # get PK
             puzzle = puzzle_for_pk(puzzle_hash_to_pk[coin.puzzle_hash])
-            if first_spend:
-                solution: Program = Wallet().make_solution(primaries=primaries)
-                first_spend = False
+            if primary_announcement_hash is None:
+                message_list: List[bytes32] = [c.name() for c in selected_coins]
+                for primary in primaries:
+                    message_list.append(Coin(coin.name(), primary["puzzlehash"], primary["amount"]).name())
+                message: bytes32 = std_hash(b"".join(message_list))
+                solution: Program = Wallet().make_solution(primaries=primaries, fee=fee, coin_announcements=[message])
+                primary_announcement_hash = Announcement(coin.name(), message).name()
             else:
-                solution = Wallet().make_solution()
+                solution = Wallet().make_solution(coin_announcements_to_assert=[primary_announcement_hash])
             spends.append(CoinSolution(coin, puzzle, solution))
 
         spend_bundle: SpendBundle = SpendBundle(spends, G2Element())
 
         await check_cost(spend_bundle)
         assert spend_bundle.fees() == fee
+        print_conditions(spend_bundle)
 
         print(f"Created transaction with fees: {spend_bundle.fees()} and outputs:")
         for addition in spend_bundle.additions():
