@@ -27,8 +27,7 @@ Note: generate_and_print will not add the keys to the devices keyring, they will
 Note: I used a new and fully formatted USB drive to copy this public key.  
 
 Online machine:  
-8. Use the `generate_address` function in `create_unsigned_tx.py` to create new addresses for a specific index, and send some chia (or testnet chia) to these addresses. Note that for testnet, you should use the `txch` prefix instead of `xch` when calling this function. The default calls to  
-this function are lines 204-207, example of amending one of these for testnet `print(await generate_address_unhardened(parent_pk, 1400, "txch"))`.  
+8. Use the `generate_address` function in `create_unsigned_tx.py` to create new addresses for a specific index, and send some chia (or testnet chia) to these addresses. Note that for testnet, you should use the `txch` prefix instead of `xch` when calling this function. The default calls to this function are lines 204-207, example of amending one of these for testnet `print(await generate_address_unhardened(parent_pk, 1400, "txch"))`.  
 Note: the second parameter (1400) is the index used for generating the key,  
 more information on bls keys can be found [here](https://docs.chia.net/bls-keys/).  
 9. Run the `create_unsigned_tx.py` script and save the JSON spend bundle. Note: I used a new and fully formatted USB drive to copy this spend bundle.  
