@@ -23,16 +23,14 @@ Offline machine:
 5. Create a private key using `chia keys generate` or `chia keys generate_and_print`.  
 Note: generate_and_print will not add the keys to the devices keyring, they will only be displayed on-screen.  
 6. Put the 24 words into `sign_tx.py` file.  
-7. Run the sign_tx script to get the parent public key, copy the parent public key from the offline machine paste it into `create_unsigned_tx.py`  
-on the online machine replacing the value in line 202  
-`parent_pk_hex = "b9a124531d5528a2760afc6444c4c877cefdb1b6eeaee32f6929ee086f08bfd4b15828125c21c47a3ef7b11fab84ba42"`.  
+7. Run the sign_tx script to get the parent public key, copy the parent public key from the offline machine paste it into `create_unsigned_tx.py` on the online machine replacing the value in line 202 `parent_pk_hex = "b9a124531d5528a2760afc6444c4c877cefdb1b6eeaee32f6929ee08..."`.  
 Note: I used a new and fully formatted USB drive to copy this public key.  
 
 Online machine:  
-8. Use the `generate_address` function in `create_unsigned_tx.py` to create new addresses for a specific index, and send some chia (or testnet chia)  
-to these addresses. Note that for testnet, you should use the `txch` prefix instead of `xch` when calling this function. The default calls to  
+8. Use the `generate_address` function in `create_unsigned_tx.py` to create new addresses for a specific index, and send some chia (or testnet chia) to these addresses. Note that for testnet, you should use the `txch` prefix instead of `xch` when calling this function. The default calls to  
 this function are lines 204-207, example of amending one of these for testnet `print(await generate_address_unhardened(parent_pk, 1400, "txch"))`.  
-Note: the second parameter (1400) is the index used for generating the key, more information on bls keys can be found [here](https://docs.chia.net/bls-keys/).  
+Note: the second parameter (1400) is the index used for generating the key,  
+more information on bls keys can be found [here](https://docs.chia.net/bls-keys/).  
 9. Run the `create_unsigned_tx.py` script and save the JSON spend bundle. Note: I used a new and fully formatted USB drive to copy this spend bundle.  
 
 Offline machine:  
